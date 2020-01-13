@@ -9,18 +9,20 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
+from ounoise import OUNoise
+
 
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
 LR_ACTOR = 1e-4         # learning rate of the actor 
-LR_CRITIC = 1e-3        # learning rate of the critic
+LR_CRITIC = 5e-4        # learning rate of the critic
 WEIGHT_DECAY = 0        # L2 weight decay
 
 
 class Agent():
     """Interacts with and learns from the environment."""
     
-    def __init__(self, state_size, action_size, num_agents, cuda=False):
+    def __init__(self, state_size, action_size, num_agents, noise_theta, noise_sigma, noise_decay_rate, cuda=False):
         """Initialize an Agent object.
         
         Params
@@ -31,6 +33,7 @@ class Agent():
         """
         self.state_size = state_size
         self.action_size = action_size
+        self.ounoise = OUNoise(action_size, cuda, 0., noise_theta, noise_sigma, noise_decay_rate)
         
         if cuda:
             self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -47,28 +50,38 @@ class Agent():
         self.critic_target = Critic(state_size * num_agents, action_size * num_agents).to(self.device)
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
 
-    def decide(self, states, use_target=False, as_tensor=False):
+    def decide(self, states, use_target=False, as_tensor=False, add_noise=True, autograd=False):
         """Returns actions for given states as per current policy."""       
-        def eval_no_grad(network, states, device, as_tensor):
-            network.eval()
-            with torch.no_grad():
-                action = network(states)
-                if not as_tensor:
-                    action = action.cpu().data.numpy()
-            network.train()
-            return action
+        # Check input type
+        if isinstance(states, np.ndarray):
+            states = torch.from_numpy(states).float().to(self.device)
         
+        # Select appropiate network
         if use_target:
             network = self.actor_target
         else:
             network = self.actor_local   
-        if isinstance(states, np.ndarray):
-            states = torch.from_numpy(states).float().to(self.device)
-        actions = eval_no_grad(network, states, self.device, as_tensor)
-        if as_tensor: 
-            return torch.clamp(actions, -1, 1)
+        
+        # To autograd or not to autograd, that is the question
+        if autograd:
+            actions = network(states)
         else:
-            return np.clip(actions, -1, 1)
+            network.eval()
+            with torch.no_grad():
+                actions = network(states)
+            network.train()
+        
+        # Noise
+        if add_noise:
+            actions = actions + self.ounoise.sample()
+                
+        # Clipping & casting
+        if as_tensor:
+            actions = torch.clamp(actions, -1, 1)
+        else:
+            actions = np.clip(actions.cpu().data.numpy(), -1, 1)
+
+        return actions
 
         
     def learn(self, experiences, next_actions, current_actions, agent_number):
@@ -87,21 +100,22 @@ class Agent():
         actions = torch.cat(actions, dim=1)
         next_states = torch.cat(next_states, dim=1)
         rewards = rewards[agent_number]
-        dones = dones[agent_number]        
+        dones = dones[agent_number]
+        next_actions = torch.cat(next_actions, dim=1)
+        current_actions = torch.cat([ca if i == agent_number else ca.detach() 
+                                     for i, ca in enumerate(current_actions)], dim=1)
 
         # ---------------------------- update critic ---------------------------- #
         # Get predicted next-state actions and Q values from target models
-        
-        #actions_next = self.actor_target(next_states)
-        Q_targets_next = self.critic_target(next_states, next_actions)
+        with torch.no_grad(): ##
+            Q_targets_next = self.critic_target(next_states, next_actions)
         # Compute Q targets for current states (y_i)
         Q_targets = rewards + (GAMMA * Q_targets_next * (1 - dones))
         # Compute critic loss
-        Q_expected = self.critic_local(states, actions) # old 
-        #Q_expected = self.critic_local(torch.cat(states, dim=1), torch.cat(actions, dim=1))
-        #critic_loss = F.mse_loss(Q_expected, Q_targets) # old
-        huber_loss = torch.nn.SmoothL1Loss()
-        critic_loss = huber_loss(Q_expected, Q_targets)
+        Q_expected = self.critic_local(states, actions)
+        critic_loss = F.mse_loss(Q_expected, Q_targets.detach()) # old
+        #huber_loss = torch.nn.SmoothL1Loss()
+        #critic_loss = huber_loss(Q_expected, Q_targets.detach()) ##
         # Minimize the loss
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -111,8 +125,6 @@ class Agent():
         # ---------------------------- update actor ---------------------------- #
         # Compute actor loss
         actor_loss = -self.critic_local(states, current_actions).mean() # old
-        #actions[agent_number] = self.actor_local(states[agent_number])
-        #actor_loss = -self.critic_local(torch.cat(states, dim=1), torch.cat(actions, dim=1)).mean()
         # Minimize the loss
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
