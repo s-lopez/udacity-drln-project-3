@@ -13,7 +13,7 @@ import torch.optim as optim
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
 LR_ACTOR = 1e-4         # learning rate of the actor 
-LR_CRITIC = 1e-4        # learning rate of the critic
+LR_CRITIC = 1e-3        # learning rate of the critic
 WEIGHT_DECAY = 0        # L2 weight decay
 
 
@@ -97,8 +97,11 @@ class Agent():
         # Compute Q targets for current states (y_i)
         Q_targets = rewards + (GAMMA * Q_targets_next * (1 - dones))
         # Compute critic loss
-        Q_expected = self.critic_local(states, actions)
-        critic_loss = F.mse_loss(Q_expected, Q_targets)
+        Q_expected = self.critic_local(states, actions) # old 
+        #Q_expected = self.critic_local(torch.cat(states, dim=1), torch.cat(actions, dim=1))
+        #critic_loss = F.mse_loss(Q_expected, Q_targets) # old
+        huber_loss = torch.nn.SmoothL1Loss()
+        critic_loss = huber_loss(Q_expected, Q_targets)
         # Minimize the loss
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -107,8 +110,9 @@ class Agent():
 
         # ---------------------------- update actor ---------------------------- #
         # Compute actor loss
-        #actions_pred = self.actor_local(states)
-        actor_loss = -self.critic_local(states, current_actions).mean()
+        actor_loss = -self.critic_local(states, current_actions).mean() # old
+        #actions[agent_number] = self.actor_local(states[agent_number])
+        #actor_loss = -self.critic_local(torch.cat(states, dim=1), torch.cat(actions, dim=1)).mean()
         # Minimize the loss
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
@@ -116,7 +120,8 @@ class Agent():
 
         # ----------------------- update target networks ----------------------- #
         self.soft_update(self.critic_local, self.critic_target, TAU)
-        self.soft_update(self.actor_local, self.actor_target, TAU)                     
+        self.soft_update(self.actor_local, self.actor_target, TAU)    
+    
 
     def soft_update(self, local_model, target_model, tau):
         """Soft update model parameters.

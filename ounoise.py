@@ -20,7 +20,8 @@ class OUNoise:
     def sample(self):
         """Update internal state and return it as a noise sample."""
         x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * np.random.random(len(x))
+        #dx = self.theta * (self.mu - x) + self.sigma * np.random.random(len(x))
+        dx = self.theta * (self.mu - x) + self.sigma * np.random.standard_normal(len(x))
         self.state = x + dx
         return self.state * self.decay
         #return torch.tensor(self.state * self.scale).float()
