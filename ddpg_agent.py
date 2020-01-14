@@ -1,7 +1,5 @@
 import numpy as np
 import random
-#import copy
-#from collections import namedtuple, deque
 
 from ddpg_model import Actor, Critic
 
@@ -11,7 +9,7 @@ import torch.optim as optim
 
 from ounoise import OUNoise
 
-
+# Hyperparameters
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
 LR_ACTOR = 1e-4         # learning rate of the actor 
@@ -22,7 +20,7 @@ WEIGHT_DECAY = 0        # L2 weight decay
 class Agent():
     """Interacts with and learns from the environment."""
     
-    def __init__(self, state_size, action_size, num_agents, noise_theta, noise_sigma, noise_decay_rate, cuda=False):
+    def __init__(self, state_size, action_size, num_agents, noise_theta=0, noise_sigma=0, noise_decay_rate=1, cuda=False):
         """Initialize an Agent object.
         
         Params
@@ -30,6 +28,11 @@ class Agent():
             state_size (int): dimension of each state
             action_size (int): dimension of each action
             random_seed (int): random seed
+            num_agents (int): The number of agents sharing the common replay buffer
+            noise_theta (float): The parameter theta in the Ornstein–Uhlenbeck process
+            noise_sigma (float): The parameter sigma in the Ornstein–Uhlenbeck process
+            noise_decay_rate (float): The decay rate in the Ornstein–Uhlenbeck process
+            cuda (bool): If True, try to use the GPU
         """
         self.state_size = state_size
         self.action_size = action_size
@@ -50,8 +53,18 @@ class Agent():
         self.critic_target = Critic(state_size * num_agents, action_size * num_agents).to(self.device)
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
 
+        
     def decide(self, states, use_target=False, as_tensor=False, add_noise=True, autograd=False):
-        """Returns actions for given states as per current policy."""       
+        """Returns actions for given states as per current policy.
+        
+        Parameters
+        ==========
+        states (np.Ndarray or torch.Tensor): The states that the actor will evaluate
+        use_target (bool): Use the target actor network if True, else use the local actor network
+        as_tensor (bool): Return actions as a tensor if True, else return as numpy array
+        add_noise (bool): Add noise from the OU process to the actor's output
+        autograd (bool): Activate autograd when evaluating the states
+        """       
         # Check input type
         if isinstance(states, np.ndarray):
             states = torch.from_numpy(states).float().to(self.device)
@@ -85,16 +98,25 @@ class Agent():
 
         
     def learn(self, experiences, next_actions, current_actions, agent_number):
-        """Update policy and value parameters using given batch of experience tuples.
-        Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
-        where:
-            actor_target(state) -> action
-            critic_target(state, action) -> Q-value
+        """Update actor and critics using the sampled experiences and the updated actions.
 
         Params
         ======
-            experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tensors 
+            experiences (Tuple of (states, actions, rewards, next_states, dones)):
+                The experiences sampled from the replay buffer. Each tuple element
+                is a list of tensors, where the ith tensor corresponds to the ith 
+                agent.
+            next_actions (list of tensors):
+                The target actors' output, for all next_states in experiences.
+                The ith tensor corresponds to the output from the ith agent.
+            current_actions (list of tensors):
+                The local actors' output, for all states in experiences.
+                The ith tensor corresponds to the output from the ith agent.
+            agent_number (int):
+                The index of the current agent, to extract the correct tensors
+                from experiences.
         """
+        # Extract and pre-process data
         states, actions, rewards, next_states, dones = experiences
         states = torch.cat(states, dim=1)
         actions = torch.cat(actions, dim=1)
@@ -107,15 +129,13 @@ class Agent():
 
         # ---------------------------- update critic ---------------------------- #
         # Get predicted next-state actions and Q values from target models
-        with torch.no_grad(): ##
+        with torch.no_grad():
             Q_targets_next = self.critic_target(next_states, next_actions)
         # Compute Q targets for current states (y_i)
         Q_targets = rewards + (GAMMA * Q_targets_next * (1 - dones))
         # Compute critic loss
         Q_expected = self.critic_local(states, actions)
-        critic_loss = F.mse_loss(Q_expected, Q_targets.detach()) # old
-        #huber_loss = torch.nn.SmoothL1Loss()
-        #critic_loss = huber_loss(Q_expected, Q_targets.detach()) ##
+        critic_loss = F.mse_loss(Q_expected, Q_targets.detach())
         # Minimize the loss
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -124,7 +144,7 @@ class Agent():
 
         # ---------------------------- update actor ---------------------------- #
         # Compute actor loss
-        actor_loss = -self.critic_local(states, current_actions).mean() # old
+        actor_loss = -self.critic_local(states, current_actions).mean()
         # Minimize the loss
         self.actor_optimizer.zero_grad()
         actor_loss.backward()

@@ -34,6 +34,7 @@ class OUNoise:
             return self.state * self.decay
         
     def decay_step(self):
+        """Decrease the amplitude of the noise"""
         self.decay *= self.decay_rate
     
     
