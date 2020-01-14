@@ -18,11 +18,13 @@ A reward of `+0.1` is provided to each agent (independently) each time that they
 
 - **Solution criteria**: the environment is considered as solved when the agent gets an average score of **0.5 over 100 consecutive episodes**.
 
-## Set-up
+## Installing dependencies
 
-To run this code in your own machine, please follow the instructions [here](https://github.com/udacity/deep-reinforcement-learning#dependencies) and [here](https://github.com/udacity/deep-reinforcement-learning/tree/master/p3_collab-compet#getting-started).
+To run this code in your machine, you will need to install a couple of things first: 
+* Follow the **nanodegree's repository installation instructions [here](https://github.com/udacity/deep-reinforcement-learning#dependencies)**. This will install most of the dependencies and clone the repository.
+* Follow the **project-specific instructions [here](https://github.com/udacity/deep-reinforcement-learning/tree/master/p3_collab-compet#getting-started)**. This will provide you with the binaries for running the environment.
 
-Note: To develop in my machine, I used an updated version of Pytorch (`1.3.1`). You can reproduce the conda environment exactly following the instructions in `conda-requirements.txt`
+Note: To develop in my machine, I used an updated version of Pytorch (`1.3.1`) compared to the nanodegree's version (`0.4`). You can reproduce my conda environment exactly following the instructions in `conda-requirements.txt`.
 
 ## How to run
 
